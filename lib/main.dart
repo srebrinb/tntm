@@ -1,111 +1,304 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:uni_links/uni_links.dart';
 
-void main() => runApp(MyApp());
+void main() => runApp(new MyApp());
 
-class MyApp extends StatelessWidget {
-  // This widget is the root of your application.
+class MyApp extends StatefulWidget {
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // Try running your application with "flutter run". You'll see the
-        // application has a blue toolbar. Then, without quitting the app, try
-        // changing the primarySwatch below to Colors.green and then invoke
-        // "hot reload" (press "r" in the console where you ran "flutter run",
-        // or simply save your changes to "hot reload" in a Flutter IDE).
-        // Notice that the counter didn't reset back to zero; the application
-        // is not restarted.
-        primarySwatch: Colors.blue,
-      ),
-      home: MyHomePage(title: 'Flutter Demo Home Page'),
-    );
+  _MyAppState createState() => new _MyAppState();
+}
+
+enum UniLinksType { string, uri }
+
+class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
+  String _latestLink = 'Unknown';
+  Uri _latestUri;
+
+  StreamSubscription _sub;
+
+  TabController _tabController;
+  UniLinksType _type = UniLinksType.string;
+
+  final List<String> _cmds = getCmds();
+  final TextStyle _cmdStyle = const TextStyle(
+      fontFamily: 'Courier', fontSize: 12.0, fontWeight: FontWeight.w700);
+  final _scaffoldKey = new GlobalKey<ScaffoldState>();
+
+  @override
+  initState() {
+    super.initState();
+    _tabController = new TabController(vsync: this, length: 2);
+    _tabController.addListener(_handleTabChange);
+    initPlatformState();
   }
-}
-
-class MyHomePage extends StatefulWidget {
-  MyHomePage({Key key, this.title}) : super(key: key);
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
 
   @override
-  _MyHomePageState createState() => _MyHomePageState();
-}
+  dispose() {
+    if (_sub != null) _sub.cancel();
+    _tabController.removeListener(_handleTabChange);
+    _tabController.dispose();
+    super.dispose();
+  }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+  // Platform messages are asynchronous, so we initialize in an async method.
+  initPlatformState() async {
+    if (_type == UniLinksType.string) {
+      await initPlatformStateForStringUniLinks();
+    } else {
+      await initPlatformStateForUriUniLinks();
+    }
+  }
 
-  void _incrementCounter() {
+  /// An implementation using a [String] link
+  initPlatformStateForStringUniLinks() async {
+    // Attach a listener to the links stream
+    _sub = getLinksStream().listen((String link) {
+      if (!mounted) return;
+      setState(() {
+        _latestLink = link ?? 'Unknown';
+        _latestUri = null;
+        try {
+          if (link != null) _latestUri = Uri.parse(link);
+        } on FormatException {}
+      });
+    }, onError: (err) {
+      if (!mounted) return;
+      setState(() {
+        _latestLink = 'Failed to get latest link: $err.';
+        _latestUri = null;
+      });
+    });
+
+    // Attach a second listener to the stream
+    getLinksStream().listen((String link) {
+      print('got link: $link');
+    }, onError: (err) {
+      print('got err: $err');
+    });
+
+    // Get the latest link
+    String initialLink;
+    Uri initialUri;
+    // Platform messages may fail, so we use a try/catch PlatformException.
+    try {
+      initialLink = await getInitialLink();
+      print('initial link: $initialLink');
+      if (initialLink != null) initialUri = Uri.parse(initialLink);
+    } on PlatformException {
+      initialLink = 'Failed to get initial link.';
+      initialUri = null;
+    } on FormatException {
+      initialLink = 'Failed to parse the initial link as Uri.';
+      initialUri = null;
+    }
+
+    // If the widget was removed from the tree while the asynchronous platform
+    // message was in flight, we want to discard the reply rather than calling
+    // setState to update our non-existent appearance.
+    if (!mounted) return;
+
     setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+      _latestLink = initialLink;
+      _latestUri = initialUri;
+    });
+  }
+
+  /// An implementation using the [Uri] convenience helpers
+  initPlatformStateForUriUniLinks() async {
+    // Attach a listener to the Uri links stream
+    _sub = getUriLinksStream().listen((Uri uri) {
+      if (!mounted) return;
+      setState(() {
+        _latestUri = uri;
+        _latestLink = uri?.toString() ?? 'Unknown';
+      });
+    }, onError: (err) {
+      if (!mounted) return;
+      setState(() {
+        _latestUri = null;
+        _latestLink = 'Failed to get latest link: $err.';
+      });
+    });
+
+    // Attach a second listener to the stream
+    getUriLinksStream().listen((Uri uri) {
+      print('got uri: ${uri?.path} ${uri?.queryParametersAll}');
+    }, onError: (err) {
+      print('got err: $err');
+    });
+
+    // Get the latest Uri
+    Uri initialUri;
+    String initialLink;
+    // Platform messages may fail, so we use a try/catch PlatformException.
+    try {
+      initialUri = await getInitialUri();
+      print('initial uri: ${initialUri?.path}'
+          ' ${initialUri?.queryParametersAll}');
+      initialLink = initialUri?.toString();
+    } on PlatformException {
+      initialUri = null;
+      initialLink = 'Failed to get initial uri.';
+    } on FormatException {
+      initialUri = null;
+      initialLink = 'Bad parse the initial link as Uri.';
+    }
+
+    // If the widget was removed from the tree while the asynchronous platform
+    // message was in flight, we want to discard the reply rather than calling
+    // setState to update our non-existent appearance.
+    if (!mounted) return;
+
+    setState(() {
+      _latestUri = initialUri;
+      _latestLink = initialLink;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Invoke "debug painting" (press "p" in the console, choose the
-          // "Toggle Debug Paint" action from the Flutter Inspector in Android
-          // Studio, or the "Toggle Debug Paint" command in Visual Studio Code)
-          // to see the wireframe for each widget.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          mainAxisAlignment: MainAxisAlignment.center,
+    final queryParams = _latestUri?.queryParametersAll?.entries?.toList();
+
+    return new MaterialApp(
+      home: new Scaffold(
+        key: _scaffoldKey,
+        appBar: new AppBar(
+          title: new Text('Plugin example app'),
+          bottom: new TabBar(
+            controller: _tabController,
+            tabs: <Widget>[
+              new Tab(text: 'STRING LINK'),
+              new Tab(text: 'URI'),
+            ],
+          ),
+        ),
+        body: new ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.all(8.0),
           children: <Widget>[
-            Text(
-              'You have pushed the button this many times:',
+            new ListTile(
+              title: const Text('Link'),
+              subtitle: new Text('$_latestLink'),
             ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.display1,
+            new ListTile(
+              title: const Text('Uri Path'),
+              subtitle: new Text('${_latestUri?.path}'),
             ),
+            new ExpansionTile(
+              initiallyExpanded: true,
+              title: const Text('Query params'),
+              children: queryParams?.map((item) {
+                    return new ListTile(
+                      title: new Text('${item.key}'),
+                      trailing: new Text('${item.value?.join(', ')}'),
+                    );
+                  })?.toList() ??
+                  <Widget>[
+                    new ListTile(
+                      dense: true,
+                      title: const Text('null'),
+                    ),
+                  ],
+            ),
+            _cmdsCard(_cmds),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
+
+  Widget _cmdsCard(commands) {
+    Widget platformCmds;
+
+    if (commands == null) {
+      platformCmds = const Center(child: const Text('Unsupported platform'));
+    } else {
+      platformCmds = new Column(
+        children: <List<Widget>>[
+          [
+            const Text(
+                'To populate above fields open a terminal shell and run:\n')
+          ],
+          intersperse(
+              commands.map<Widget>((cmd) => new InkWell(
+                    onTap: () => _printAndCopy(cmd),
+                    child: new Text('\n$cmd\n', style: _cmdStyle),
+                  )),
+              const Text('or')),
+          [
+            new Text(
+                '(tap on any of the above commands to print it to'
+                ' the console/logger and copy to the device clipboard.)',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.caption),
+          ]
+        ].expand((el) => el).toList(),
+      );
+    }
+
+    return new Card(
+      margin: const EdgeInsets.only(top: 20.0),
+      child: new Padding(
+        padding: const EdgeInsets.all(10.0),
+        child: platformCmds,
+      ),
+    );
+  }
+
+  _handleTabChange() {
+    if (_tabController.indexIsChanging) {
+      setState(() {
+        _type = UniLinksType.values[_tabController.index];
+      });
+      initPlatformState();
+    }
+  }
+
+  _printAndCopy(String cmd) async {
+    print(cmd);
+
+    await Clipboard.setData(new ClipboardData(text: cmd));
+    _scaffoldKey.currentState.showSnackBar(new SnackBar(
+      content: const Text('Copied to Clipboard'),
+    ));
+  }
+}
+
+List<String> getCmds() {
+  String cmd;
+  String cmdSuffix = '';
+
+  if (Platform.isIOS) {
+    cmd = '/usr/bin/xcrun simctl openurl booted';
+    cmd = "";
+  } else if (Platform.isAndroid) {
+    cmd = '\$ANDROID_HOME/platform-tools/adb shell \'am start'
+        ' -a android.intent.action.VIEW'
+        ' -c android.intent.category.BROWSABLE -d';
+    cmd = "";    
+    cmdSuffix = "'";
+  } else {
+    return null;
+  }
+
+  // https://orchid-forgery.glitch.me/mobile/redirect/
+  return [
+    '$cmd "mqes://b-trust.bg/path/subpath"$cmdSuffix',
+    '$cmd "https://b-trust.bg/login/portion/?uid=123&token=abc"$cmdSuffix',
+    '$cmd "https://b-trust.bg/login/?arr%5b%5d=123&arr%5b%5d=abc'
+        '&addr=1%20Nowhere%20Rd&addr=Rand%20City%F0%9F%98%82"$cmdSuffix',
+  ];
+}
+
+List<Widget> intersperse(Iterable<Widget> list, Widget item) {
+  List<Widget> initialValue = [];
+  return list.fold(initialValue, (all, el) {
+    if (all.length != 0) all.add(item);
+    all.add(el);
+    return all;
+  });
 }

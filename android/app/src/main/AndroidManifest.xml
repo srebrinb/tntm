@@ -40,7 +40,8 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:scheme="mqes"/>
+                    android:scheme="mqes"
+                    android:host="b-trust.bg" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
