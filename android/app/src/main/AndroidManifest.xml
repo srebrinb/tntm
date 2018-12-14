@@ -52,6 +52,11 @@
                     android:host="my.b-trust.bg"
                     android:pathPrefix="/login" />
             </intent-filter>
+            <!-- Message -->
+            <intent-filter>
+                <action android:name="FLUTTER_NOTIFICATION_CLICK" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>

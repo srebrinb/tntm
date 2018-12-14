@@ -1,0 +1,42 @@
+{
+  "project_info": {
+    "project_number": "43390142036",
+    "firebase_url": "https://tntm-4adf1.firebaseio.com",
+    "project_id": "tntm-4adf1",
+    "storage_bucket": "tntm-4adf1.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:43390142036:android:0b0ac2d391349b7a",
+        "android_client_info": {
+          "package_name": "bg.srebrinb.tntm"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "43390142036-pr5e6s4ja12nb23nau7qro3pi0ah9lns.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBaQB4bb0BggInn21m0icyDMlay1ubdjRA"
+        }
+      ],
+      "services": {
+        "analytics_service": {
+          "status": 1
+        },
+        "appinvite_service": {
+          "status": 1,
+          "other_platform_oauth_client": []
+        },
+        "ads_service": {
+          "status": 2
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
