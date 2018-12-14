@@ -1,4 +1,4 @@
-package com.example.tntm;
+package bg.srebrinb.tntm;
 
 import android.os.Bundle;
 import io.flutter.app.FlutterActivity;
